@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GoalPulse</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">GP</div>
+      <div>
+        <h1>GoalPulse</h1>
+        <p>Live European match intelligence</p>
+      </div>
+    </div>
+    <nav class="tabs" aria-label="Main navigation">
+      <button data-view="dashboard" class="active">Live</button>
+      <button data-view="schedule">Schedule</button>
+      <button data-view="standings">Standings</button>
+      <button data-view="teams">Teams</button>
+      <button data-view="players">Players</button>
+      <button data-view="favorites">Favorites</button>
+      <button data-view="admin">Admin</button>
+    </nav>
+    <div class="account">
+      <button id="themeBtn" class="icon-btn" title="Toggle theme">◐</button>
+      <span id="sessionLabel">Guest</span>
+      <button id="logoutBtn" class="ghost hidden">Logout</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Matchday control room</p>
+        <h2>Scores, timelines, standings, favorites, and admin updates in one fast dashboard.</h2>
+      </div>
+      <div class="hero-stats">
+        <div><strong id="statLive">0</strong><span>Live</span></div>
+        <div><strong id="statTeams">0</strong><span>Teams</span></div>
+        <div><strong id="statEvents">0</strong><span>Events</span></div>
+      </div>
+    </section>
+
+    <section class="match-strip" id="matchStrip">
+      <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+    </section>
+
+    <section class="workspace">
+      <aside class="panel side-rail">
+        <div>
+          <h2>Account</h2>
+          <p>Use admin to test RBAC and audit logs.</p>
+        </div>
+        <form id="loginForm">
+          <label>Email<input name="email" type="email" value="admin@goalpulse.test" required></label>
+          <label>Password<input name="password" type="password" value="Admin123!" minlength="8" required></label>
+          <button type="submit">Login</button>
+        </form>
+        <form id="registerForm" class="register-form">
+          <label>Username<input name="username" value="New Fan" minlength="3"></label>
+          <label>Email<input name="email" type="email" value="fan@goalpulse.test"></label>
+          <label>Password<input name="password" type="password" value="User12345" minlength="8"></label>
+          <button type="submit" class="secondary">Register</button>
+        </form>
+        <div class="quick-search">
+          <label>Command Search<input id="searchInput" placeholder="Ctrl+K, team, player, league"></label>
+          <div id="searchResults" class="results"></div>
+        </div>
+        <p id="authMessage" class="status-text"></p>
+      </aside>
+
+      <section id="dashboard" class="view active">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Home / Live dashboard</p>
+            <h2>Today’s Matches</h2>
+          </div>
+          <div class="pill-tabs" id="matchFilters">
+            <button data-filter="all" class="active">Today</button>
+            <button data-filter="live">Live</button>
+            <button data-filter="tomorrow">Tomorrow</button>
+            <button data-filter="finished">Finished</button>
+            <button data-filter="favorites">Favorites</button>
+          </div>
+        </div>
+        <div id="matchesByLeague" class="league-groups"></div>
+        <div id="matchDetail" class="detail-panel"></div>
+      </section>
+
+      <section id="schedule" class="view">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Calendar</p>
+            <h2>Match Schedule</h2>
+          </div>
+          <input id="dateFilter" type="date" value="2026-04-24">
+        </div>
+        <div id="scheduleList" class="list"></div>
+      </section>
+
+      <section id="standings" class="view">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Tables</p>
+            <h2>League Standings</h2>
+          </div>
+          <div class="filters">
+            <select id="leagueSelect"></select>
+            <button id="exportBtn" class="secondary">Export CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GF</th><th>GA</th><th>GD</th><th>Pts</th></tr></thead>
+            <tbody id="standingsBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="teams" class="view">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Clubs</p>
+            <h2>Team Profiles</h2>
+          </div>
+        </div>
+        <div id="teamGrid" class="grid"></div>
+      </section>
+
+      <section id="players" class="view">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Squads</p>
+            <h2>Player Profiles</h2>
+          </div>
+        </div>
+        <div id="playerGrid" class="grid"></div>
+      </section>
+
+      <section id="favorites" class="view">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Personalized</p>
+            <h2>Favorites Dashboard</h2>
+          </div>
+        </div>
+        <div id="favoriteGrid" class="grid"></div>
+        <h3>Unread Notifications</h3>
+        <div id="notifications" class="list"></div>
+      </section>
+
+      <section id="admin" class="view">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">RBAC protected</p>
+            <h2>Admin Panel</h2>
+          </div>
+        </div>
+        <div class="admin-stats">
+          <div><strong id="adminMatchCount">0</strong><span>Matches</span></div>
+          <div><strong id="adminTeamCount">0</strong><span>Teams</span></div>
+          <div><strong id="adminAuditCount">0</strong><span>Audit Items</span></div>
+        </div>
+        <form id="scoreForm" class="admin-form">
+          <label>Match<select name="matchId" id="adminMatchSelect"></select></label>
+          <label>Home Score<input name="homeScore" type="number" min="0" value="2"></label>
+          <label>Away Score<input name="awayScore" type="number" min="0" value="1"></label>
+          <label>Status<select name="status"><option>scheduled</option><option selected>live</option><option>finished</option></select></label>
+          <button type="submit">Update</button>
+        </form>
+        <form id="eventForm" class="admin-form">
+          <label>Player<select name="playerId" id="playerSelect"></select></label>
+          <label>Type<select name="eventType"><option>goal</option><option>yellow_card</option><option>red_card</option><option>substitution</option><option>kickoff</option><option>full_time</option></select></label>
+          <label>Minute<input name="minute" type="number" min="0" max="130" value="72"></label>
+          <label>Detail<input name="detail" value="Admin-created match event"></label>
+          <button type="submit">Add Event</button>
+        </form>
+        <h3>Management Tables</h3>
+        <div id="adminCrud" class="admin-crud"></div>
+        <h3>Audit Logs</h3>
+        <div id="auditLog" class="list"></div>
+      </section>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
