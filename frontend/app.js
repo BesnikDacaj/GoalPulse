@@ -1,428 +1,442 @@
-const state = {
-  token: localStorage.getItem("goalpulse.token") || "",
-  refreshToken: localStorage.getItem("goalpulse.refreshToken") || "",
-  user: JSON.parse(localStorage.getItem("goalpulse.user") || "null"),
-  matches: [],
-  teams: [],
-  players: [],
-  leagues: [],
-  standings: [],
-  favorites: [],
-  notifications: [],
-  activeFilter: "all",
-  standingsSort: "points"
+
+
+const S = {
+  token: localStorage.getItem('gp.t') || '',
+  refreshToken: localStorage.getItem('gp.rt') || '',
+  user: JSON.parse(localStorage.getItem('gp.u') || 'null'),
+  matches: [], teams: [], players: [], leagues: [],
+  standings: [], favorites: [], notifications: [],
+  selectedMatch: null
 };
+const $ = id => document.getElementById(id);
 
-const $ = (id) => document.getElementById(id);
+/* ── Date in masthead ── */
+const now = new Date();
+$('mastDate').textContent = now.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' }).toUpperCase();
 
-async function api(path, options = {}) {
-  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-  if (state.token) headers.Authorization = `Bearer ${state.token}`;
-  const response = await fetch(`/api/v1${path}`, { ...options, headers });
-  if (response.headers.get("content-type")?.includes("text/csv")) {
-    if (!response.ok) throw new Error("Export failed");
-    return response.text();
+/* ── API ── */
+async function api(path, opts = {}) {
+  const h = { 'Content-Type':'application/json', ...(opts.headers||{}) };
+  if (S.token) h.Authorization = `Bearer ${S.token}`;
+  const r = await fetch(`/api/v1${path}`, { ...opts, headers: h });
+  if (r.headers.get('content-type')?.includes('text/csv')) {
+    if (!r.ok) throw new Error('Export failed');
+    return r.text();
   }
-  const payload = await response.json().catch(() => ({ success: false, message: response.statusText }));
-  if (!response.ok || payload.success === false) throw new Error(payload.message || response.statusText);
-  return Object.prototype.hasOwnProperty.call(payload, "data") ? payload.data : payload;
+  const b = await r.json().catch(() => ({ success:false, message:r.statusText }));
+  if (!r.ok || b.success === false) throw new Error(b.message || r.statusText);
+  return Object.hasOwn(b, 'data') ? b.data : b;
 }
 
-function setSession(data) {
-  state.token = data.token;
-  state.refreshToken = data.refreshToken || "";
-  state.user = data.user;
-  localStorage.setItem("goalpulse.token", state.token);
-  localStorage.setItem("goalpulse.refreshToken", state.refreshToken);
-  localStorage.setItem("goalpulse.user", JSON.stringify(state.user));
+/* ── Session ── */
+function setSession(d) {
+  S.token = d.token; S.refreshToken = d.refreshToken||''; S.user = d.user;
+  localStorage.setItem('gp.t', S.token);
+  localStorage.setItem('gp.rt', S.refreshToken);
+  localStorage.setItem('gp.u', JSON.stringify(S.user));
   renderSession();
 }
-
 function renderSession() {
-  $("sessionLabel").textContent = state.user ? `${state.user.username} · ${state.user.role}` : "Guest";
-  $("logoutBtn").classList.toggle("hidden", !state.user);
+  $('sessionInfo').textContent = S.user ? `${S.user.username} · ${S.user.role}` : 'Guest';
+  $('logoutBtn').classList.toggle('hidden', !S.user);
 }
 
-function toast(message) {
-  $("toast").textContent = message;
-  $("toast").classList.remove("hidden");
-  setTimeout(() => $("toast").classList.add("hidden"), 3200);
+function toast(msg) { $('toast').textContent=msg; $('toast').classList.remove('hidden'); setTimeout(()=>$('toast').classList.add('hidden'),3200); }
+function showMessage(msg) { $('authMessage').textContent=msg; if(msg) toast(msg); }
+
+function esc(v) { return String(v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;'); }
+
+function livePill(min) {
+  return `<span class="live-pill"><span class="live-dot"></span>Live · ${min}'</span>`;
 }
 
-function showMessage(message) {
-  $("authMessage").textContent = message;
-  if (message) toast(message);
-}
-
-function escapeAttr(value) {
-  return String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("'", "&#39;").replaceAll("<", "&lt;");
-}
-
-function logo(team) {
+function crestEl(team) {
   if (team.logoUrl) {
     const src = `/api/v1/assets/crest?url=${encodeURIComponent(team.logoUrl)}`;
-    return `<span class="logo image-logo"><img src="${src}" alt="${escapeAttr(team.name)} logo" loading="lazy" onerror="this.remove();this.parentElement.textContent='${escapeAttr(team.shortName)}'"></span>`;
+    return `<img src="${src}" alt="${esc(team.shortName)}" style="width:80%;height:80%;object-fit:contain" onerror="this.parentElement.textContent='${esc(team.shortName)}'">`;
   }
-  const darkText = team.color === "#f7f7f7" || team.color === "#fdeb00";
-  return `<span class="logo" style="background:${team.color};color:${darkText ? "#071016" : "#fff"}">${team.shortName}</span>`;
+  return team.shortName;
 }
 
-function statusLabel(match) {
-  return match.status === "live" ? `<span class="pulse"></span> ${match.status}` : match.status;
-}
+function empty(msg) { return `<div class="empty-state">${msg}</div>`; }
 
-function matchMinute(match) {
-  if (match.status === "live") return "67'";
-  if (match.status === "finished") return "FT";
-  return new Date(match.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
+/* ════ FRONT PAGE ════ */
+function renderFront() {
+  const live = S.matches.filter(m => m.status === 'live');
+  const finished = S.matches.filter(m => m.status === 'finished');
+  const all = [...live, ...finished, ...S.matches.filter(m => m.status === 'scheduled')];
+  $('liveCount').textContent = live.length;
 
-function matchCard(match) {
-  const favorite = state.favorites.some(team => team.id === match.homeTeam.id || team.id === match.awayTeam.id);
-  return `
-    <article class="card ${match.status === "live" ? "live-card" : ""}">
-      <div class="card-head">
-        <span class="status">${statusLabel(match)} · ${matchMinute(match)}</span>
-        <button class="ghost" onclick="favorite(${match.homeTeam.id})" title="Favorite home team">${favorite ? "★" : "☆"}</button>
+  const lead = all[0];
+  if (!lead) { $('leadStory').innerHTML = empty('No match data available.'); return; }
+
+  // Get events for lead match
+  const leadMin = lead.status === 'live' ? 67 : (lead.status === 'finished' ? 90 : 0);
+
+  $('leadStory').innerHTML = `
+    <div class="lead-grid">
+      <div>
+        <div style="margin-bottom:8px"><span class="mono upper" style="font-size:11px;color:var(--muted)">${lead.homeTeam.league}</span></div>
+        <h2 class="lead-headline">
+          ${lead.homeTeam.name} <span style="color:var(--red);font-style:italic">${lead.homeScore > lead.awayScore ? 'lead' : lead.homeScore < lead.awayScore ? 'trail' : 'level with'}</span> ${lead.awayTeam.name}
+        </h2>
+        <p class="lead-dek">${lead.homeTeam.shortName} ${lead.homeScore}–${lead.awayScore} ${lead.awayTeam.shortName} at ${lead.venue}</p>
+        <div class="lead-score-block">
+          <div style="text-align:right">
+            <div class="mono upper" style="font-size:10px;color:var(--muted);margin-bottom:4px">Home</div>
+            <div class="serif" style="font-size:30px;line-height:1">${lead.homeTeam.name}</div>
+          </div>
+          <div style="text-align:center">
+            <div class="lead-score-num">${lead.homeScore}<span style="color:var(--muted);margin:0 12px;font-style:normal">–</span>${lead.awayScore}</div>
+            <div style="margin-top:8px">${lead.status === 'live' ? livePill(leadMin) : `<span class="mono upper" style="font-size:10px;color:var(--muted);font-weight:700">${lead.status}</span>`}</div>
+          </div>
+          <div style="text-align:left">
+            <div class="mono upper" style="font-size:10px;color:var(--muted);margin-bottom:4px">Away</div>
+            <div class="serif" style="font-size:30px;line-height:1">${lead.awayTeam.name}</div>
+          </div>
+        </div>
+        <div class="lead-body">
+          <p><span class="lead-dropcap">A</span> compelling fixture at ${lead.venue} with ${lead.homeTeam.name} and ${lead.awayTeam.name} producing a match full of quality and intensity across both halves.</p>
+          <p>The scoreline currently reads ${lead.homeScore}–${lead.awayScore} ${lead.status === 'live' ? 'with the match still in progress' : 'at the final whistle'}. ${lead.referee ? `Referee ${lead.referee} oversees proceedings.` : ''}</p>
+        </div>
       </div>
-      <div class="team-line">${logo(match.homeTeam)}<strong>${match.homeTeam.name}</strong><strong>${match.homeScore}</strong></div>
-      <div class="team-line">${logo(match.awayTeam)}<strong>${match.awayTeam.name}</strong><strong>${match.awayScore}</strong></div>
-      <p class="meta">${match.homeTeam.league} · ${match.venue}</p>
-      <button class="secondary" onclick="loadMatchDetail(${match.id})">Match Center</button>
-    </article>`;
-}
+      <aside class="km-sidebar">
+        <div class="mono upper" style="font-size:11px;font-weight:700;margin-bottom:4px">Key Moments</div>
+        <div class="serif-body" style="font-size:13px;font-style:italic;color:var(--muted);margin-bottom:18px">Click to see full match detail</div>
+        <button class="ghost-btn" onclick="openMatchPage(${lead.id})" style="margin-bottom:16px;width:100%;text-align:center">View Full Report →</button>
+        <div style="margin-top:16px;padding:16px;background:var(--paper-2);border:1px solid var(--rule)">
+          <div class="mono upper" style="font-size:10px;font-weight:700;color:var(--red);margin-bottom:6px">Venue</div>
+          <div class="serif" style="font-size:22px;line-height:1.1;margin-bottom:4px">${lead.venue}</div>
+          <div class="mono" style="font-size:11px;color:var(--muted)">${lead.referee || 'TBA'}</div>
+        </div>
+      </aside>
+    </div>`;
 
-function groupByLeague(matches) {
-  return matches.reduce((groups, match) => {
-    const league = match.homeTeam.league;
-    groups[league] = groups[league] || [];
-    groups[league].push(match);
-    return groups;
-  }, {});
-}
-
-function filteredMatches() {
-  if (state.activeFilter === "live") return state.matches.filter(match => match.status === "live");
-  if (state.activeFilter === "finished") return state.matches.filter(match => match.status === "finished");
-  if (state.activeFilter === "tomorrow") return state.matches.filter(match => match.date.startsWith("2026-04-25"));
-  if (state.activeFilter === "favorites") return state.matches.filter(match => state.favorites.some(team => team.id === match.homeTeam.id || team.id === match.awayTeam.id));
-  return state.matches;
-}
-
-function renderMatches() {
-  const matches = filteredMatches();
-  $("matchStrip").innerHTML = state.matches.slice(0, 3).map(match => `
-    <button class="score-tile ${match.status === "live" ? "live" : ""}" onclick="loadMatchDetail(${match.id})">
-      <span class="status">${statusLabel(match)} · ${match.homeTeam.league}</span>
-      <span class="score-row"><span>${match.homeTeam.shortName}</span><strong>${match.homeScore}</strong></span>
-      <span class="score-row"><span>${match.awayTeam.shortName}</span><strong>${match.awayScore}</strong></span>
-    </button>`).join("");
-
-  const grouped = groupByLeague(matches);
-  $("matchesByLeague").innerHTML = Object.keys(grouped).map(league => `
-    <section>
-      <div class="league-title"><h3>${league}</h3><span class="meta">${grouped[league].length} matches</span></div>
-      <div class="grid">${grouped[league].map(matchCard).join("")}</div>
-    </section>`).join("") || emptyState("No matches for this filter.");
-}
-
-async function loadMatchDetail(id) {
-  const match = await api(`/matches/${id}`);
-  const eventIcon = { goal: "⚽", yellow_card: "YC", red_card: "RC", substitution: "↔", kickoff: "KO", full_time: "FT", score: "★" };
-  $("matchDetail").innerHTML = `
-    <article class="card">
-      <div class="match-hero">
-        <div>${logo(match.homeTeam)}<h3>${match.homeTeam.name}</h3></div>
-        <div><div class="score">${match.homeScore}-${match.awayScore}</div><span class="status">${statusLabel(match)}</span><p>${match.venue} · ${match.referee}</p></div>
-        <div>${logo(match.awayTeam)}<h3>${match.awayTeam.name}</h3></div>
-      </div>
-      <div class="sub-tabs"><button class="active">Summary</button><button>Timeline</button><button>Lineups</button><button>Stats</button><button>H2H</button></div>
-      <h3>Timeline</h3>
-      <div class="timeline">
-        ${match.events.map(event => `<div class="timeline-item" data-icon="${eventIcon[event.eventType] || "•"}"><strong>${event.minute}' ${event.eventType.replace("_", " ")}</strong> · ${event.player}<p>${event.detail}</p></div>`).join("") || emptyState("No events yet.")}
-      </div>
-      <h3>Stats</h3>
-      <div class="grid">
-        <div class="notice"><strong>Possession</strong><p>${match.stats.possessionHome}% - ${100 - match.stats.possessionHome}%</p></div>
-        <div class="notice"><strong>Shots</strong><p>${match.stats.shotsHome} - ${match.stats.shotsAway}</p></div>
-        <div class="notice"><strong>Corners</strong><p>${match.stats.cornersHome} - ${match.stats.cornersAway}</p></div>
-      </div>
-      <h3>Lineups</h3>
-      <div class="grid">${match.lineups.map(player => playerCard(player, true)).join("")}</div>
-    </article>`;
-  document.querySelector("#matchDetail").scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-async function renderStandings() {
-  state.standings = await api("/standings");
-  const favoriteIds = new Set(state.favorites.map(team => team.id));
-  $("standingsBody").innerHTML = state.standings.map(row => {
-    const zone = row.rank <= 4 ? "top-four" : row.rank >= state.standings.length - 1 ? "relegation" : "";
-    const fav = favoriteIds.has(row.team.id) ? "favorite-row" : "";
-    return `
-      <tr class="${fav}">
-        <td class="${zone}">${row.rank}</td><td>${logo(row.team)} ${row.team.name}</td><td>${row.played}</td><td>${row.won}</td><td>${row.drawn}</td><td>${row.lost}</td>
-        <td>${row.goalsFor}</td><td>${row.goalsAgainst}</td><td>${row.goalDifference}</td><td><strong>${row.points}</strong></td>
-      </tr>`;
-  }).join("");
-}
-
-function renderTeams() {
-  $("teamGrid").innerHTML = state.teams.map(team => {
-    const roster = state.players.filter(player => player.teamId === team.id);
-    return `
-      <article class="card">
-        <div class="card-head"><h3>${logo(team)} ${team.name}</h3><button class="ghost" onclick="favorite(${team.id})">☆</button></div>
-        <p>${team.league} · ${team.city} · Founded ${team.founded}</p>
-        <p><strong>Stadium:</strong> ${team.stadium}<br><strong>Coach:</strong> ${team.coach}</p>
-        <div class="chips"><span class="chip win">W</span><span class="chip win">W</span><span class="chip">D</span><span class="chip loss">L</span><span class="chip win">W</span></div>
-        <h3>Squad</h3>
-        <div class="list">${roster.map(player => playerCard(player, true)).join("")}</div>
-      </article>`;
-  }).join("");
-}
-
-function playerCard(player, compact = false) {
-  if (!player) return "";
-  return `
-    <div class="notice">
-      <strong>#${player.shirtNumber} ${player.name}</strong>
-      <p>${player.position} · ${player.nationality} · ${player.team}</p>
-      ${compact ? "" : `<div class="chips"><span class="chip">${player.position === "Forward" ? "16 goals" : "4 goals"}</span><span class="chip">${player.position === "Midfielder" ? "11 assists" : "3 assists"}</span><span class="chip win">7.6 rating</span></div>`}
+  // Secondary matches
+  const secondary = all.slice(1, 4);
+  $('secondaryMatches').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:20px">
+      <h3 class="serif" style="font-size:28px;font-style:italic;font-weight:400">Also today</h3>
+      <span class="mono upper" style="font-size:10px;color:var(--muted)">${all.length} total matches</span>
+    </div>
+    <div class="sec-matches">
+      ${secondary.map((m, i) => `
+        <article class="sec-match" onclick="openMatchPage(${m.id})" style="cursor:pointer">
+          <div class="mono upper" style="font-size:10px;color:var(--muted);margin-bottom:10px">${m.homeTeam.league}</div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+            <h4 class="serif" style="font-size:22px;font-weight:400;line-height:1.05">
+              ${m.homeTeam.name}<br><span style="font-style:italic;color:var(--muted)">v</span> ${m.awayTeam.name}
+            </h4>
+            <div style="text-align:right">
+              <div class="sec-score">${m.homeScore}<span style="color:var(--muted);margin:0 4px;font-style:normal">–</span>${m.awayScore}</div>
+              ${m.status === 'live' ? livePill(67) : `<span class="mono upper" style="font-size:10px;color:var(--muted);font-weight:700">${m.status}</span>`}
+            </div>
+          </div>
+        </article>`).join('')}
     </div>`;
 }
 
-function renderPlayers() {
-  if (!state.players.length) {
-    $("playerGrid").innerHTML = emptyState("The online match feed does not include full squads on the free daily match endpoint. Seeded mode includes sample player profiles.");
-    return;
-  }
-  const byPosition = ["Goalkeeper", "Defender", "Midfielder", "Forward"];
-  $("playerGrid").innerHTML = byPosition.map(position => {
-    const players = state.players.filter(player => player.position === position);
-    if (!players.length) return "";
-    return `<article class="card"><h3>${position}s</h3>${players.map(player => playerCard(player)).join("")}</article>`;
-  }).join("");
+/* ════ MATCH DETAIL PAGE ════ */
+async function openMatchPage(id) {
+  switchView('match');
+  const m = await api(`/matches/${id}`);
+  S.selectedMatch = m;
+  const icons = { goal:'⚽', yellow_card:'🟨', red_card:'🟥', substitution:'🔄', kickoff:'▶', full_time:'⏹' };
+  const stats = [
+    ['Possession', m.stats.possessionHome, 100 - m.stats.possessionHome],
+    ['Shots', m.stats.shotsHome, m.stats.shotsAway],
+    ['Corners', m.stats.cornersHome, m.stats.cornersAway],
+  ];
+
+  $('matchDetailContent').innerHTML = `
+    <div class="kicker-bar">
+      <span class="mono upper kicker-live">◆ Match Report</span>
+      <button class="ghost-btn" onclick="switchView('front')">← Back</button>
+    </div>
+    <div class="rule-thick"></div>
+    <div style="padding:32px 0 24px;text-align:center">
+      <div class="mono upper" style="font-size:11px;color:var(--muted);margin-bottom:10px">
+        ${m.homeTeam.league} · ${m.venue}${m.referee ? ' · ' + m.referee : ''}
+      </div>
+      <h2 class="serif-display" style="font-size:44px;font-style:italic;line-height:1;margin-bottom:20px;letter-spacing:-.5px">
+        ${m.homeTeam.name} <span style="color:var(--red)">—</span> ${m.awayTeam.name}
+      </h2>
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:32px;max-width:800px;margin:0 auto">
+        <div style="text-align:right">
+          <div class="serif" style="font-size:34px;line-height:1">${m.homeTeam.name}</div>
+          <div class="mono upper" style="font-size:10px;color:var(--muted);margin-top:6px">${m.homeTeam.shortName}</div>
+        </div>
+        <div class="match-hero-score">${m.homeScore}<span style="color:var(--muted);margin:0 16px;font-style:normal">–</span>${m.awayScore}</div>
+        <div style="text-align:left">
+          <div class="serif" style="font-size:34px;line-height:1">${m.awayTeam.name}</div>
+          <div class="mono upper" style="font-size:10px;color:var(--muted);margin-top:6px">${m.awayTeam.shortName}</div>
+        </div>
+      </div>
+      <div style="margin-top:16px">${m.status === 'live' ? livePill(67) : `<span class="mono upper" style="font-size:10px;color:var(--muted);font-weight:700">${m.status}</span>`}</div>
+    </div>
+    <div class="rule-double"></div>
+    <div class="match-body-grid">
+      <div class="match-col">
+        <h3 class="serif" style="font-size:28px;font-style:italic;margin-bottom:14px">Report</h3>
+        <div style="column-count:2;column-gap:24px;font:16px/1.55 var(--serif-b)">
+          <p style="margin-bottom:10px"><span class="lead-dropcap" style="font-size:50px">${m.homeTeam.name[0]}</span>${m.homeTeam.name} hosted ${m.awayTeam.name} at ${m.venue} in what proved to be a compelling fixture. The home side ${m.homeScore > m.awayScore ? 'secured the three points' : m.homeScore < m.awayScore ? 'fell to defeat' : 'shared the spoils'}.</p>
+          <p style="margin-bottom:10px">The scoreline of ${m.homeScore}–${m.awayScore} ${m.status === 'finished' ? 'reflects the balance of play' : 'may yet change'}. ${m.events.filter(e=>e.eventType==='goal').length} goals were recorded in the match events.</p>
+        </div>
+      </div>
+      <div class="match-divider"></div>
+      <div class="match-col">
+        <div class="mono upper" style="font-size:11px;font-weight:700;margin-bottom:14px">Timeline</div>
+        ${m.events.length ? m.events.map(e => `
+          <div style="margin-bottom:12px">
+            <div style="display:flex;gap:10px;align-items:baseline;margin-bottom:3px">
+              <span class="serif" style="font-style:italic;font-size:22px;line-height:1;color:var(--red)">${e.minute}'</span>
+              <span class="mono upper" style="font-size:10px;color:var(--muted);font-weight:700">${e.eventType.replace('_',' ')}</span>
+            </div>
+            <div class="serif-body" style="font-size:14px;font-style:italic;color:var(--ink-soft);line-height:1.35">
+              <strong style="font-style:normal;font-family:var(--sans);font-weight:600">${e.player}</strong> — ${e.detail}
+            </div>
+          </div>`).join('') : empty('No events recorded.')}
+      </div>
+      <div class="match-divider"></div>
+      <div class="match-col">
+        <div class="mono upper" style="font-size:11px;font-weight:700;margin-bottom:14px">Match Figures</div>
+        ${stats.map(([label, h, a]) => {
+          const t = h + a || 1;
+          return `<div class="stat-row">
+            <div class="stat-row-header">
+              <span class="stat-val tabular${h>a?' win':''}" style="text-align:right">${h}</span>
+              <span class="mono upper" style="font-size:9px;color:var(--muted)">${label}</span>
+              <span class="stat-val tabular${a>h?' win':''}">${a}</span>
+            </div>
+            <div class="stat-bar"><div class="stat-bar-h" style="flex:${h/t}"></div><div class="stat-bar-a" style="flex:${a/t}"></div></div>
+          </div>`;
+        }).join('')}
+        ${m.lineups.length ? `
+          <div class="mono upper" style="font-size:11px;font-weight:700;margin:20px 0 10px">Lineups</div>
+          ${m.lineups.map(p => `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--rule);font-size:13px">
+            <span class="mono" style="color:var(--muted);min-width:20px">#${p.shirtNumber}</span>
+            <span>${p.name}</span>
+            <span style="margin-left:auto;color:var(--muted);font-size:11px">${p.position}</span>
+          </div>`).join('')}` : ''}
+      </div>
+    </div>`;
 }
 
+/* ════ STANDINGS ════ */
+async function renderStandings() {
+  S.standings = await api('/standings');
+  const total = S.standings.length;
+  const favIds = new Set(S.favorites.map(t => t.id));
+  $('standingsTable').innerHTML = `
+    <div class="std-grid std-head">
+      <div>Pos</div><div>Club</div><div style="text-align:center">Pl</div><div style="text-align:center">W</div>
+      <div style="text-align:center">D</div><div style="text-align:center">L</div><div style="text-align:center">GD</div><div style="text-align:right">Pts</div>
+    </div>
+    ${S.standings.map(r => {
+      const isTop = r.rank <= 4;
+      const isRel = r.rank >= total - 1;
+      const zoneStyle = isTop || isRel ? `border-left:3px solid ${isRel ? 'var(--red)' : 'var(--ink)'};padding-left:12px` : '';
+      return `<div class="std-grid" style="${zoneStyle}${favIds.has(r.team.id)?';background:var(--paper-2)':''}">
+        <div class="std-pos tabular${isTop?' top':''}${isRel?' rel':''}">${r.rank}</div>
+        <div class="std-name">${r.team.name}</div>
+        <div class="std-stat tabular">${r.played}</div><div class="std-stat tabular">${r.won}</div>
+        <div class="std-stat tabular">${r.drawn}</div><div class="std-stat tabular">${r.lost}</div>
+        <div class="std-stat tabular" style="color:${r.goalDifference>=0?'var(--ink)':'var(--red)'}">${r.goalDifference>0?'+':''}${r.goalDifference}</div>
+        <div class="std-pts tabular">${r.points}</div>
+      </div>`;
+    }).join('')}`;
+}
+
+/* ════ SCHEDULE ════ */
 function renderSchedule() {
-  const date = $("dateFilter").value;
-  const matches = state.matches.filter(match => match.date.startsWith(date));
-  $("scheduleList").innerHTML = matches.map(match => `
-    <div class="notice">
-      <strong>${new Date(match.date).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</strong>
-      <p>${match.homeTeam.name} vs ${match.awayTeam.name} · ${match.venue} · ${match.status}</p>
-    </div>`).join("") || emptyState("No fixtures on this date.");
+  const d = $('dateFilter').value;
+  const list = S.matches.filter(m => m.date.startsWith(d));
+  const grouped = {};
+  list.forEach(m => {
+    const day = new Date(m.date).toLocaleDateString('en-GB', { weekday:'short', day:'numeric' });
+    (grouped[day] = grouped[day] || []).push(m);
+  });
+  if (!list.length) { $('scheduleContent').innerHTML = empty('No fixtures on this date.'); return; }
+  $('scheduleContent').innerHTML = Object.keys(grouped).map(day => `
+    <div class="sched-day-head">
+      <h3>${day}</h3><div class="line"></div>
+      <span class="mono upper" style="font-size:10px;color:var(--muted)">${grouped[day].length} fixtures</span>
+    </div>
+    <div class="sched-grid">
+      ${grouped[day].map(m => {
+        const t = new Date(m.date).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+        const live = m.status === 'live';
+        return `<div class="sched-item${live?' marquee':''}" onclick="openMatchPage(${m.id})" style="cursor:pointer">
+          <div class="sched-time${live?' marquee':''}">${t}</div>
+          <div class="sched-teams">${m.homeTeam.name} <span class="serif-body" style="font-style:italic;color:var(--muted)">vs</span> ${m.awayTeam.name}</div>
+          <div class="sched-league">${live?'<span style="color:var(--red);margin-right:6px">◆</span>':''}${m.homeTeam.league}</div>
+        </div>`;
+      }).join('')}
+    </div>`).join('');
 }
 
+/* ════ CLUBS ════ */
+function renderClubs() {
+  $('clubContent').innerHTML = S.teams.map(t => {
+    const roster = S.players.filter(p => p.teamId === t.id);
+    const matches = S.matches.filter(m => m.homeTeam.id === t.id || m.awayTeam.id === t.id);
+    const wins = matches.filter(m => m.status==='finished' && ((m.homeTeam.id===t.id && m.homeScore>m.awayScore) || (m.awayTeam.id===t.id && m.awayScore>m.homeScore))).length;
+    return `
+    <div class="club-card">
+      <div style="text-align:center">
+        <div class="club-crest">${crestEl(t)}</div>
+        <div class="mono upper" style="font-size:10px;color:var(--muted);margin-top:12px">Est. ${t.founded}</div>
+        <button class="ghost-btn" style="margin-top:8px" onclick="toggleFav(${t.id})">☆ Favorite</button>
+      </div>
+      <div>
+        <div class="mono upper" style="font-size:11px;color:var(--muted);margin-bottom:8px">${t.league} · ${t.city}</div>
+        <h2 class="serif-display" style="font-size:48px;font-style:italic;line-height:.95;letter-spacing:-1px;margin-bottom:12px">${t.name}</h2>
+        <p class="serif-body" style="font-size:17px;font-style:italic;color:var(--ink-soft);line-height:1.4;margin-bottom:16px">
+          ${t.coach}'s side, playing out of ${t.stadium}.
+        </p>
+        <div class="club-stats-row">
+          <div class="club-stat"><div class="club-stat-val tabular">${matches.length}</div><div class="mono upper" style="font-size:10px;color:var(--muted);margin-top:6px">Matches</div></div>
+          <div class="club-stat"><div class="club-stat-val tabular accent">${wins}</div><div class="mono upper" style="font-size:10px;color:var(--muted);margin-top:6px">Wins</div></div>
+          <div class="club-stat"><div class="club-stat-val tabular">${roster.length}</div><div class="mono upper" style="font-size:10px;color:var(--muted);margin-top:6px">Squad</div></div>
+          <div class="club-stat"><div class="club-stat-val tabular">${t.stadium}</div><div class="mono upper" style="font-size:10px;color:var(--muted);margin-top:6px">Ground</div></div>
+        </div>
+        ${roster.length ? `
+          <div style="margin-top:20px">
+            <div class="squad-row squad-head"><div>Sq</div><div>Pos</div><div>Player</div><div style="text-align:center">Nat</div></div>
+            ${roster.map(p => `<div class="squad-row">
+              <div class="serif tabular" style="font-style:italic;font-size:20px;color:var(--muted)">${p.shirtNumber}</div>
+              <div class="mono upper" style="font-size:11px;font-weight:700;color:var(--ink-soft)">${p.position.substring(0,3).toUpperCase()}</div>
+              <div class="serif" style="font-size:18px">${p.name}</div>
+              <div class="mono" style="text-align:center;font-size:12px;color:var(--muted)">${p.nationality}</div>
+            </div>`).join('')}
+          </div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ════ FAVORITES ════ */
 async function renderPrivate() {
   try {
-    [state.favorites, state.notifications] = await Promise.all([api("/favorites"), api("/notifications")]);
-    $("favoriteGrid").innerHTML = state.favorites.map(team => `
-      <article class="card">
-        <div class="card-head"><h3>${logo(team)} ${team.name}</h3><button class="ghost" onclick="unfavorite(${team.id})">Remove</button></div>
-        <p>${team.league} · ${team.stadium}</p>
-        <h3>Next / Recent Matches</h3>
-        <div class="list">${state.matches.filter(match => match.homeTeam.id === team.id || match.awayTeam.id === team.id).map(match => `<div class="notice">${match.homeTeam.shortName} ${match.homeScore}-${match.awayScore} ${match.awayTeam.shortName}<p>${match.status} · ${match.venue}</p></div>`).join("")}</div>
-      </article>`).join("") || emptyState("Log in and favorite teams to personalize this dashboard.");
-    $("notifications").innerHTML = state.notifications.map(note => `<div class="notice"><strong>${note.eventType}</strong><p>${note.message}</p></div>`).join("") || emptyState("No unread notifications.");
-    if (state.user?.role === "admin") await renderAudit();
-  } catch (error) {
-    $("favoriteGrid").innerHTML = emptyState(error.message);
-  }
+    [S.favorites, S.notifications] = await Promise.all([api('/favorites'), api('/notifications')]);
+    $('favContent').innerHTML = S.favorites.length ? S.favorites.map(t => `
+      <div class="fav-card">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <h3 class="serif" style="font-size:24px;font-style:italic">${t.name}</h3>
+          <button class="ghost-btn" onclick="unfav(${t.id})">Remove</button>
+        </div>
+        <div class="mono upper" style="font-size:10px;color:var(--muted);margin-top:4px">${t.league} · ${t.stadium}</div>
+        ${S.matches.filter(m => m.homeTeam.id===t.id||m.awayTeam.id===t.id).map(m => `
+          <div style="display:flex;gap:12px;padding:6px 0;font:14px var(--serif-b)">
+            <span class="mono" style="font-size:11px;color:var(--muted);min-width:60px">${m.status}</span>
+            <span>${m.homeTeam.shortName} ${m.homeScore}–${m.awayScore} ${m.awayTeam.shortName}</span>
+          </div>`).join('')}
+      </div>`).join('') : empty('Log in and mark teams as favorites.');
+    $('notifContent').innerHTML = S.notifications.length ? S.notifications.map(n => `
+      <div class="notif-item"><strong>${n.eventType}</strong><p>${n.message}</p></div>`).join('') : empty('No notifications.');
+    if (S.user?.role === 'admin') await renderAudit();
+  } catch(e) { $('favContent').innerHTML = empty(e.message); }
 }
 
+/* ════ ADMIN ════ */
 async function renderAudit() {
-  const audit = await api("/admin/audit-logs");
-  $("adminAuditCount").textContent = audit.length;
-  $("auditLog").innerHTML = audit.map(row => `<div class="notice"><strong>${row.action} ${row.tableName}</strong><p>${row.oldValue} to ${row.newValue} · ${row.ipAddress}</p></div>`).join("") || emptyState("No audit entries yet.");
+  const a = await api('/admin/audit-logs');
+  $('ctrAudit').textContent = a.length;
+  $('auditLog').innerHTML = a.length ? a.map(r => `
+    <div class="notif-item"><strong>${r.action} ${r.tableName}</strong><p>${r.oldValue} → ${r.newValue} · ${r.ipAddress}</p></div>`).join('') : empty('No audit entries.');
 }
 
 function renderAdminChoices() {
-  $("adminMatchSelect").innerHTML = state.matches.map(match => `<option value="${match.id}">${match.homeTeam.shortName} vs ${match.awayTeam.shortName}</option>`).join("");
-  $("playerSelect").innerHTML = state.players.length
-    ? state.players.map(player => `<option value="${player.id}">${player.name} (${player.team})</option>`).join("")
-    : `<option value="0">Online feed player unavailable</option>`;
-  $("adminMatchCount").textContent = state.matches.length;
-  $("adminTeamCount").textContent = state.teams.length;
-  $("adminCrud").innerHTML = `
-    <div class="table-wrap compact-table">
-      <table>
-        <thead><tr><th>Teams</th><th>League</th><th>Stadium</th><th>Action</th></tr></thead>
-        <tbody>${state.teams.map(team => `<tr><td>${logo(team)} ${team.name}</td><td>${team.league}</td><td>${team.stadium}</td><td><button class="ghost" onclick="deleteAdminEntity('teams', ${team.id})">Delete</button></td></tr>`).join("")}</tbody>
-      </table>
-    </div>
-    <div class="table-wrap compact-table">
-      <table>
-        <thead><tr><th>Players</th><th>Team</th><th>Position</th><th>Action</th></tr></thead>
-        <tbody>${state.players.map(player => `<tr><td>#${player.shirtNumber} ${player.name}</td><td>${player.team}</td><td>${player.position}</td><td><button class="ghost" onclick="deleteAdminEntity('players', ${player.id})">Delete</button></td></tr>`).join("") || `<tr><td colspan="4">Online feed does not include full squads.</td></tr>`}</tbody>
-      </table>
-    </div>`;
+  $('adminMatchSelect').innerHTML = S.matches.map(m => `<option value="${m.id}">${m.homeTeam.shortName} vs ${m.awayTeam.shortName}</option>`).join('');
+  $('playerSelect').innerHTML = S.players.length
+    ? S.players.map(p => `<option value="${p.id}">${p.name} (${p.team})</option>`).join('')
+    : '<option value="0">No players</option>';
+  $('ctrMatch').textContent = S.matches.length;
+  $('ctrTeam').textContent = S.teams.length;
+  $('adminCrud').innerHTML = `
+    <table class="crud-tbl"><thead><tr><th>Team</th><th>League</th><th>Stadium</th><th></th></tr></thead>
+    <tbody>${S.teams.map(t => `<tr><td>${t.name}</td><td>${t.league}</td><td>${t.stadium}</td><td><button class="ghost-btn" onclick="delEntity('teams',${t.id})">Del</button></td></tr>`).join('')}</tbody></table>
+    <table class="crud-tbl"><thead><tr><th>Player</th><th>Team</th><th>Position</th><th></th></tr></thead>
+    <tbody>${S.players.map(p => `<tr><td>#${p.shirtNumber} ${p.name}</td><td>${p.team}</td><td>${p.position}</td><td><button class="ghost-btn" onclick="delEntity('players',${p.id})">Del</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty-state">No data</td></tr>'}</tbody></table>`;
 }
 
-async function deleteAdminEntity(type, id) {
-  if (!confirm(`Delete this ${type.slice(0, -1)}?`)) return;
-  try {
-    await api(`/admin/${type}/${id}`, { method: "DELETE" });
-    showMessage("Admin record deleted and audited.");
-    await loadAll();
-  } catch (error) { showMessage(error.message); }
+async function delEntity(type, id) {
+  if (!confirm(`Delete?`)) return;
+  try { await api(`/admin/${type}/${id}`, {method:'DELETE'}); showMessage('Deleted.'); await loadAll(); } catch(e){ showMessage(e.message); }
 }
 
 function renderLeagues() {
-  $("leagueSelect").innerHTML = `<option value="all">All leagues</option>` + state.leagues.map(league => `<option value="${league.id}">${league.name}</option>`).join("");
+  $('leagueSelect').innerHTML = '<option value="all">All leagues</option>' + S.leagues.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
 }
 
-function renderStats() {
-  $("statLive").textContent = state.matches.filter(match => match.status === "live").length;
-  $("statTeams").textContent = state.teams.length;
-  $("statEvents").textContent = state.matches.reduce((sum, match) => sum + (match.status === "live" ? 3 : 1), 0);
-}
-
-function emptyState(message) {
-  return `<div class="notice"><strong>Nothing here yet</strong><p>${message}</p></div>`;
-}
-
+/* ════ LOAD ALL ════ */
 async function loadAll() {
-  [state.matches, state.teams, state.players, state.leagues] = await Promise.all([
-    api("/matches"),
-    api("/teams"),
-    api("/players"),
-    api("/leagues")
-  ]);
-  if (state.user) await renderPrivate();
-  renderStats();
-  renderMatches();
-  renderTeams();
-  renderPlayers();
+  [S.matches, S.teams, S.players, S.leagues] = await Promise.all([api('/matches'), api('/teams'), api('/players'), api('/leagues')]);
+  if (S.user) await renderPrivate();
+  renderFront();
+  renderClubs();
   renderSchedule();
   renderAdminChoices();
   renderLeagues();
   await renderStandings();
 }
 
-async function favorite(teamId) {
-  try {
-    await api(`/favorites/teams/${teamId}`, { method: "POST" });
-    await renderPrivate();
-    renderMatches();
-    await renderStandings();
-    showMessage("Favorite saved.");
-  } catch (error) { showMessage(error.message); }
+async function toggleFav(teamId) {
+  try { await api(`/favorites/teams/${teamId}`, {method:'POST'}); await renderPrivate(); renderFront(); await renderStandings(); toast('Favorite saved.'); } catch(e){ toast(e.message); }
+}
+async function unfav(teamId) {
+  await api(`/favorites/teams/${teamId}`, {method:'DELETE'}); await renderPrivate(); renderFront();
 }
 
-async function unfavorite(teamId) {
-  await api(`/favorites/teams/${teamId}`, { method: "DELETE" });
-  await renderPrivate();
-  renderMatches();
+/* ════ NAV ════ */
+function switchView(v) {
+  document.querySelectorAll('.nav-link').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === v));
 }
+document.querySelectorAll('.nav-link').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
 
-document.querySelectorAll(".tabs button").forEach(button => {
-  button.addEventListener("click", () => {
-    document.querySelectorAll(".tabs button").forEach(tab => tab.classList.remove("active"));
-    document.querySelectorAll(".view").forEach(view => view.classList.remove("active"));
-    button.classList.add("active");
-    $(button.dataset.view).classList.add("active");
-  });
+/* Auth */
+$('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  try { setSession(await api('/auth/login', {method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))})); showMessage('Logged in.'); await loadAll(); } catch(err) { showMessage(err.message); }
+});
+$('registerForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  try { const b=Object.fromEntries(new FormData(e.target)); if(b.password.length<8) throw new Error('Password ≥ 8 chars.'); setSession(await api('/auth/register', {method:'POST',body:JSON.stringify(b)})); showMessage('Registered.'); await loadAll(); } catch(err) { showMessage(err.message); }
+});
+$('logoutBtn').addEventListener('click', () => {
+  localStorage.removeItem('gp.t'); localStorage.removeItem('gp.rt'); localStorage.removeItem('gp.u');
+  S.token=''; S.refreshToken=''; S.user=null; S.favorites=[]; S.notifications=[];
+  renderSession(); loadAll(); toast('Logged out.');
 });
 
-document.querySelectorAll("#matchFilters button").forEach(button => {
-  button.addEventListener("click", () => {
-    document.querySelectorAll("#matchFilters button").forEach(tab => tab.classList.remove("active"));
-    button.classList.add("active");
-    state.activeFilter = button.dataset.filter;
-    renderMatches();
-  });
+/* Search */
+$('searchInput').addEventListener('input', async e => {
+  const q = e.target.value.trim();
+  if (!q) { $('searchResults').classList.add('hidden'); return; }
+  const r = await api(`/search?q=${encodeURIComponent(q)}`);
+  $('searchResults').classList.remove('hidden');
+  $('searchResults').innerHTML = r.map(x => {
+    const label = x.item.name || `${x.item.homeTeam?.name} vs ${x.item.awayTeam?.name}`;
+    return `<div class="notif-item" style="cursor:pointer"><strong>${x.type}</strong><p>${label}</p></div>`;
+  }).join('') || empty('No results.');
 });
+document.addEventListener('click', e => { if (!e.target.closest('.search-strip')) $('searchResults').classList.add('hidden'); });
 
-$("loginForm").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  try {
-    setSession(await api("/auth/login", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(event.target))) }));
-    showMessage("Logged in successfully.");
-    await loadAll();
-  } catch (error) { showMessage(error.message); }
+/* Misc */
+$('dateFilter').addEventListener('change', renderSchedule);
+$('themeBtn').addEventListener('click', () => document.body.classList.toggle('dark'));
+$('exportBtn').addEventListener('click', async () => {
+  try { const csv = await api('/export/standings.csv'); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='standings.csv'; a.click(); } catch(e){ toast(e.message); }
 });
-
-$("registerForm").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  try {
-    const body = Object.fromEntries(new FormData(event.target));
-    if (body.password.length < 8) throw new Error("Password must be at least 8 characters.");
-    setSession(await api("/auth/register", { method: "POST", body: JSON.stringify(body) }));
-    showMessage("Registered and logged in.");
-    await loadAll();
-  } catch (error) { showMessage(error.message); }
+$('scoreForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  try { const b=Object.fromEntries(new FormData(e.target)); await api(`/admin/matches/${b.matchId}`, {method:'PUT',body:JSON.stringify(b)}); showMessage('Score updated.'); await loadAll(); } catch(err){ showMessage(err.message); }
 });
-
-$("logoutBtn").addEventListener("click", () => {
-  localStorage.clear();
-  state.token = "";
-  state.refreshToken = "";
-  state.user = null;
-  state.favorites = [];
-  state.notifications = [];
-  renderSession();
-  loadAll();
-  showMessage("Logged out.");
-});
-
-$("searchInput").addEventListener("input", async (event) => {
-  const q = event.target.value.trim();
-  if (!q) {
-    $("searchResults").innerHTML = "";
-    return;
-  }
-  const results = await api(`/search?q=${encodeURIComponent(q)}`);
-  $("searchResults").innerHTML = results.map(result => {
-    const item = result.item;
-    const label = item.name || `${item.homeTeam?.name} vs ${item.awayTeam?.name}`;
-    return `<div class="notice"><strong>${result.type}</strong><p>${label}</p></div>`;
-  }).join("") || emptyState("No results found.");
-});
-
-document.addEventListener("keydown", (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-    event.preventDefault();
-    $("searchInput").focus();
-  }
-});
-
-$("dateFilter").addEventListener("change", renderSchedule);
-$("themeBtn").addEventListener("click", () => document.body.classList.toggle("light"));
-
-$("exportBtn").addEventListener("click", async () => {
-  try {
-    const csv = await api("/export/standings.csv");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "goalpulse-standings.csv";
-    a.click();
-  } catch (error) { showMessage(error.message); }
-});
-
-$("scoreForm").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  try {
-    const body = Object.fromEntries(new FormData(event.target));
-    await api(`/admin/matches/${body.matchId}`, { method: "PUT", body: JSON.stringify(body) });
-    showMessage("Score updated and audited.");
-    await loadAll();
-  } catch (error) { showMessage(error.message); }
-});
-
-$("eventForm").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  try {
-    const body = Object.fromEntries(new FormData(event.target));
-    const matchId = $("adminMatchSelect").value;
-    await api(`/admin/matches/${matchId}/events`, { method: "POST", body: JSON.stringify(body) });
-    showMessage("Event added. Favorite-team notifications generated.");
-    await loadAll();
-    await loadMatchDetail(matchId);
-  } catch (error) { showMessage(error.message); }
+$('eventForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  try { const b=Object.fromEntries(new FormData(e.target)); const mid=$('adminMatchSelect').value; await api(`/admin/matches/${mid}/events`, {method:'POST',body:JSON.stringify(b)}); showMessage('Event added.'); await loadAll(); await openMatchPage(parseInt(mid)); } catch(err){ showMessage(err.message); }
 });
 
 renderSession();
-loadAll().catch(error => showMessage(error.message));
+loadAll().catch(e => toast(e.message));
