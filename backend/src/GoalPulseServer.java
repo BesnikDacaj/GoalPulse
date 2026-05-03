@@ -34,9 +34,11 @@ import java.util.Set;
 public class GoalPulseServer {
     private static final int PORT = Integer.parseInt(System.getenv().getOrDefault("PORT", "8080"));
     private static final String TOKEN_SECRET = System.getenv().getOrDefault("GOALPULSE_TOKEN_SECRET", "dev-secret-change-before-production");
-    private static final DateTimeFormatter ISO = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+    static final DateTimeFormatter ISO = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
     private static final HttpClient HTTP = HttpClient.newHttpClient();
+    private static final boolean USE_DB = Boolean.parseBoolean(System.getenv().getOrDefault("GOALPULSE_USE_DB", "false"));
     private static final Store store = new Store();
+    private static final JdbcGoalPulseDao dao = new JdbcGoalPulseDao(new DatabaseConfig());
 
     public static void main(String[] args) throws Exception {
         store.seed();
@@ -44,7 +46,7 @@ public class GoalPulseServer {
         server.createContext("/", GoalPulseServer::route);
         server.setExecutor(null);
         server.start();
-        System.out.println("GoalPulse running at http://localhost:" + PORT);
+        System.out.println("GoalPulse running at http://localhost:" + PORT + (USE_DB ? " using JDBC database mode" : " using in-memory demo mode"));
     }
 
     private static void route(HttpExchange ex) throws IOException {
@@ -76,23 +78,23 @@ public class GoalPulseServer {
         else if (method.equals("POST") && path.equals("/auth/register")) register(ex);
         else if (method.equals("POST") && path.equals("/auth/refresh")) refresh(ex);
         else if (method.equals("GET") && path.equals("/auth/me")) me(ex);
-        else if (method.equals("GET") && path.equals("/matches")) json(ex, 200, store.matchesJson());
-        else if (method.equals("GET") && path.equals("/matches/live")) json(ex, 200, store.matchesByStatus("live"));
+        else if (method.equals("GET") && path.equals("/matches")) json(ex, 200, USE_DB ? dao.matchesJson() : store.matchesJson());
+        else if (method.equals("GET") && path.equals("/matches/live")) json(ex, 200, USE_DB ? dao.matchesByStatusJson("live") : store.matchesByStatus("live"));
         else if (method.equals("GET") && path.matches("/matches/date/.+")) json(ex, 200, store.matchesForDate(path.substring("/matches/date/".length())));
         else if (method.equals("GET") && path.matches("/matches/\\d+/events")) json(ex, 200, store.eventsFor(idFrom(path, "/matches/")).stream().map(Event::json).toList());
         else if (method.equals("GET") && path.matches("/matches/\\d+/lineups")) json(ex, 200, store.lineupFor(idFrom(path, "/matches/")).stream().map(Player::json).toList());
         else if (method.equals("GET") && path.matches("/matches/\\d+")) matchDetail(ex, idFrom(path, "/matches/"));
         else if (method.equals("PUT") && path.matches("/matches/\\d+/score")) updateScore(ex, idFrom(path, "/matches/"));
         else if (method.equals("POST") && path.matches("/matches/\\d+/events")) addEvent(ex, idFrom(path, "/matches/"));
-        else if (method.equals("GET") && path.equals("/standings")) json(ex, 200, store.standingsJson());
-        else if (method.equals("GET") && path.equals("/leagues")) json(ex, 200, store.leaguesJson());
+        else if (method.equals("GET") && path.equals("/standings")) json(ex, 200, USE_DB ? dao.standingsJson() : store.standingsJson());
+        else if (method.equals("GET") && path.equals("/leagues")) json(ex, 200, USE_DB ? dao.leaguesJson() : store.leaguesJson());
         else if (method.equals("GET") && path.matches("/leagues/\\d+/standings")) json(ex, 200, store.standingsJson());
         else if (method.equals("GET") && path.matches("/leagues/\\d+/matches")) json(ex, 200, store.matchesJson());
-        else if (method.equals("GET") && path.equals("/teams")) json(ex, 200, store.teamsJson());
+        else if (method.equals("GET") && path.equals("/teams")) json(ex, 200, USE_DB ? dao.teamsJson() : store.teamsJson());
         else if (method.equals("GET") && path.matches("/teams/\\d+")) teamDetail(ex, idFrom(path, "/teams/"));
         else if (method.equals("GET") && path.matches("/teams/\\d+/players")) json(ex, 200, store.playersJson(String.valueOf(idFrom(path, "/teams/"))));
         else if (method.equals("GET") && path.matches("/teams/\\d+/matches")) json(ex, 200, store.matchesForTeam(idFrom(path, "/teams/")));
-        else if (method.equals("GET") && path.equals("/players")) json(ex, 200, store.playersJson(query(ex).get("teamId")));
+        else if (method.equals("GET") && path.equals("/players")) json(ex, 200, USE_DB ? dao.playersJson(query(ex).get("teamId")) : store.playersJson(query(ex).get("teamId")));
         else if (method.equals("GET") && path.matches("/players/\\d+")) playerDetail(ex, idFrom(path, "/players/"));
         else if (method.equals("GET") && path.equals("/favorites")) favorites(ex);
         else if (method.equals("POST") && path.equals("/favorites")) addFavorite(ex);
@@ -184,8 +186,14 @@ public class GoalPulseServer {
         int home = Integer.parseInt(body.getOrDefault("homeScore", "0"));
         int away = Integer.parseInt(body.getOrDefault("awayScore", "0"));
         String status = body.getOrDefault("status", "live");
-        store.updateScore(id, home, away, status, user, clientIp(ex));
-        json(ex, 200, store.findMatch(id).orElseThrow().json());
+        if (USE_DB) {
+            dao.updateMatchScore(id, home, away, status);
+            dao.insertAuditLog(user.id, "UPDATE", "match", String.valueOf(id), "score/status changed", home + "-" + away + " " + status, clientIp(ex));
+            json(ex, 200, dao.matchJson(id));
+        } else {
+            store.updateScore(id, home, away, status, user, clientIp(ex));
+            json(ex, 200, store.findMatch(id).orElseThrow().json());
+        }
     }
 
     private static void addEvent(HttpExchange ex, int id) throws Exception {
