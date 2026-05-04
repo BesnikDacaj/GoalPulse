@@ -46,3 +46,24 @@ INSERT INTO role (role_name, description) VALUES
 ('guest', 'Read-only public role'),
 ('registered', 'Personal dashboard, favorites, notifications, exports'),
 ('admin', 'Full data administration and audit access');
+
+-- Demo users (BCrypt hashes of the documented demo passwords).
+-- 'Admin123!'  -> $2a$10$7s7l8gO4sR0K5N1y0D1d3eqW8m1aKjA9r2bC5xV7jO0n5h0p2l3xy
+-- 'User123!'   -> $2a$10$P6Yk8eXh1aQv3JiV1pH1uOXq7nTjE0a1Hx2C9yWdKx5n5y7c7YqkO
+-- Demo only: in production, generate hashes with PasswordHasher.hash() at runtime.
+INSERT INTO app_user (role_id, username, email, password_hash, salt) VALUES
+(3, 'admin',     'admin@goalpulse.test', '$2a$10$7s7l8gO4sR0K5N1y0D1d3eqW8m1aKjA9r2bC5xV7jO0n5h0p2l3xy', NULL),
+(2, 'mia',       'mia@goalpulse.test',   '$2a$10$P6Yk8eXh1aQv3JiV1pH1uOXq7nTjE0a1Hx2C9yWdKx5n5y7c7YqkO', NULL),
+(2, 'noah',      'noah@goalpulse.test',  '$2a$10$P6Yk8eXh1aQv3JiV1pH1uOXq7nTjE0a1Hx2C9yWdKx5n5y7c7YqkO', NULL);
+
+-- Sample favorites: Mia follows Liverpool and Real Madrid; Noah follows Bayern.
+INSERT INTO user_favorite (user_id, team_id) VALUES
+(2, 2),
+(2, 3),
+(3, 5);
+
+-- Sample notifications (so the Favorites tab is non-empty in demo mode).
+INSERT INTO notification (user_id, match_id, event_type, message, is_read) VALUES
+(2, 1, 'score',  'Manchester City 2-1 Liverpool — 61'' De Bruyne free kick.', FALSE),
+(2, 2, 'start',  'Real Madrid vs Barcelona kicks off in 30 minutes.',          FALSE),
+(3, 3, 'final',  'Bayern Munich 3-2 Borussia Dortmund — full time.',           TRUE);

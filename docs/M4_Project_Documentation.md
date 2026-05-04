@@ -126,7 +126,7 @@ Prerequisites:
 Run the one-command demo:
 
 ```powershell
-cd c:\Users\pedju\OneDrive\Desktop\GoalPulse
+cd <path-to-repo>
 .\scripts\run.ps1
 ```
 
@@ -185,4 +185,6 @@ Detailed test cases are listed in `docs/acceptance_tests.md`.
 
 Milestone 4 delivers a complete runnable version of GoalPulse with database deliverables, backend APIs, optional online sports data, React/TypeScript frontend source structure, and a responsive dark sports-dashboard frontend. The system demonstrates the layered architecture described in earlier milestones: presentation layer, business/API layer, database connectivity layer, and database design.
 
-The strongest completed areas are match tracking, standings calculation, authentication, authorization, favorites, notifications, admin operations, audit logging, online data fallback, and M4 user documentation. For Milestone 5, the main remaining improvements are running the Maven version with PostgreSQL/MySQL drivers in the final environment, expanding the React build into the only frontend entry point, and recording final test evidence from the final hosted version.
+The strongest completed areas are match tracking, standings calculation, authentication, authorization, favorites, notifications, admin operations, audit logging, online data fallback, and M4 user documentation.
+
+> **Note:** This file is the M4 milestone documentation, kept for historical reference. The authoritative final-submission document is `docs/Final_Project_Documentation.md` (and the generated `docs/GoalPulse_Final_Documentation.docx`).

@@ -54,8 +54,19 @@ Team crests from football-data.org are loaded through the backend at `/api/v1/as
 ## Important Paths
 
 - `backend/src/GoalPulseServer.java` - Java REST API and business layer.
-- `frontend/` - SPA presentation layer.
-- `database/postgresql/schema.sql` - PostgreSQL database.
-- `database/mysql/schema.sql` - MySQL database.
-- `docs/M4_Project_Documentation.md` - Milestone 4 documentation content.
-- `docs/acceptance_tests.md` - M4 acceptance test plan.
+- `backend/src/JdbcGoalPulseDao.java` - JDBC DAO (Connection / PreparedStatement / ResultSet).
+- `frontend/` - SPA presentation layer (vanilla runtime + React/TS source structure).
+- `database/postgresql/schema.sql` - PostgreSQL schema (3NF, 14 tables).
+- `database/mysql/schema.sql` - MySQL schema (parallel to PG; backticks for `match`).
+- `docs/Final_Project_Documentation.md` - Authoritative final documentation.
+- `docs/00_Project_Proposal.md` - Deliverable 0 (proposal + team).
+- `docs/06_Self_Evaluation.md`, `docs/06_Peer_Review.md` - Deliverable 6.
+- `docs/07_Presentation.md` - Deliverable 7 outline.
+- `docs/demo_script.md` - Live-demo click-by-click script.
+- `docs/db_dictionary.md` - Full per-column database dictionary.
+- `docs/diagrams/` - Architecture, ERD, UML (use case / class / component / activity), wireframes.
+- `docs/user_stories.md` - Standard-form user stories.
+- `docs/qa_prep.md` - Q&A prep sheet for the panel.
+- `docs/acceptance_tests.md` - 18 acceptance tests, all passing on 2026-05-04.
+- `INSTALL.md` - Cross-platform installation instructions.
+- `LICENSE` - MIT.
